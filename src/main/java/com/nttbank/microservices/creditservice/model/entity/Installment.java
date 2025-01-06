@@ -18,9 +18,6 @@ import lombok.Setter;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Installment {
 
-  private Installment() {
-  }
-
   private int installmentNumber;
   private BigDecimal amount;
   private LocalDate dueDate;

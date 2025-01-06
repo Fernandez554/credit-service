@@ -1,5 +1,7 @@
 package com.nttbank.microservices.creditservice.controller;
 
+import com.nttbank.microservices.creditservice.dto.CreditDTO;
+import com.nttbank.microservices.creditservice.mapper.CreditMapper;
 import com.nttbank.microservices.creditservice.model.entity.Credit;
 import com.nttbank.microservices.creditservice.service.CreditService;
 import jakarta.validation.Valid;
@@ -24,19 +26,20 @@ import reactor.core.publisher.Mono;
 public class CreditController {
 
   private final CreditService creditService;
+  private final CreditMapper mapper;
 
   @PostMapping("/preview")
-  public Mono<ResponseEntity<Credit>> preview(@Valid @RequestBody Credit credit,
+  public Mono<ResponseEntity<Credit>> preview(@Valid @RequestBody CreditDTO creditDTO,
       final ServerHttpRequest req) {
-    return creditService.preview(credit).map(c -> ResponseEntity.ok()
+    return creditService.preview(mapper.creditDTOToCredit(creditDTO)).map(c -> ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_JSON).body(c))
         .defaultIfEmpty(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
   }
 
   @PostMapping
-  public Mono<ResponseEntity<Credit>> save(@Valid @RequestBody Credit credit,
+  public Mono<ResponseEntity<Credit>> save(@Valid @RequestBody CreditDTO creditDTO,
       final ServerHttpRequest req) {
-    return creditService.save(credit).map(c -> ResponseEntity.created(
+    return creditService.save(mapper.creditDTOToCredit(creditDTO)).map(c -> ResponseEntity.created(
                 URI.create(req.getURI().toString().concat("/").concat(c.getId())))
             .contentType(MediaType.APPLICATION_JSON).body(c))
         .defaultIfEmpty(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
