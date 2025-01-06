@@ -3,9 +3,11 @@ package com.nttbank.microservices.creditservice.service.impl;
 import com.nttbank.microservices.creditservice.model.entity.Credit;
 import com.nttbank.microservices.creditservice.model.entity.Installment;
 import com.nttbank.microservices.creditservice.model.response.CustomerResponse;
+import com.nttbank.microservices.creditservice.model.response.MovementResponse;
 import com.nttbank.microservices.creditservice.repo.ICreditRepo;
 import com.nttbank.microservices.creditservice.service.CreditService;
 import com.nttbank.microservices.creditservice.service.CustomerService;
+import com.nttbank.microservices.creditservice.service.MovementService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -24,7 +27,13 @@ import reactor.core.publisher.Mono;
 public class CreditServiceImpl implements CreditService {
 
   private final CustomerService customerService;
+  private final MovementService movementService;
   private final ICreditRepo repo;
+
+  @Override
+  public Flux<Credit> findAll() {
+    return repo.findAll();
+  }
 
   @Override
   public Mono<Credit> save(Credit credit) {
@@ -65,6 +74,47 @@ public class CreditServiceImpl implements CreditService {
             .createdAt(LocalDateTime.now())
             .updatedAt(LocalDateTime.now())
             .build()));
+  }
+
+  @Override
+  public Mono<Credit> payInstallment(String creditId, String installmentNumber) {
+    return repo.findById(creditId)
+        .flatMap(credit -> {
+          return credit.getLstInstallments().stream()
+              .filter(installment ->
+                  installment.getInstallmentNumber() == Integer.parseInt(installmentNumber)
+                      && !installment.isPaid())
+              .findFirst()
+              .map(installment -> {
+                if (credit.getLstInstallments().stream()
+                    .allMatch(Installment::isPaid)) {
+                  credit.setCreditStatus("paid");
+                }
+                installment.setPaid(true);
+                return repo.save(credit).flatMap(c -> {
+                  return movementService.saveMovement(
+                          MovementResponse.builder()
+                              .customerId(credit.getCustomerId())
+                              .accountId(creditId)
+                              .amount(installment.getAmount())
+                              .timestamp(LocalDateTime.now())
+                              .description("Credit installment payment")
+                              .type("payment")
+                              .build()
+                      )
+                      .thenReturn(c);
+                });
+              })
+              .orElse(Mono.error(
+                  new IllegalArgumentException("Installment not found or already paid")));
+        })
+        .switchIfEmpty(Mono.error(new IllegalArgumentException(
+            "Credit not found")));
+  }
+
+  @Override
+  public Mono<Credit> findById(String creditId) {
+    return repo.findById(creditId);
   }
 
   private Mono<CustomerResponse> hasLeastOneCredit(CustomerResponse customer) {

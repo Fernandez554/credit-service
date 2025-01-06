@@ -13,9 +13,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * CreditDTO class that represents the credit collection.
- */
+/** Represents the Credit Data Transfer Object (DTO). */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
