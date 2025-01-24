@@ -14,6 +14,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
@@ -33,7 +34,6 @@ public class Credit {
   private String id;
   @NotNull
   private String customerId;
-  private String creditStatus;
   @NotNull
   private BigDecimal creditAmount;
   @NotNull
@@ -45,7 +45,14 @@ public class Credit {
   private List<Installment> lstInstallments;
   private LocalDate startDate;
   private LocalDate endDate;
-  private LocalDateTime createdAt;
-  private LocalDateTime updatedAt;
+  @Builder.Default
+  private LocalDateTime createdAt = LocalDateTime.now();
+  @Builder.Default
+  private LocalDateTime updatedAt = LocalDateTime.now();
+  @Builder.Default
+  private CreditStatus status = CreditStatus.active;
+  @Transient
+  @Builder.Default
+  List<CreditTransactions> lstTransactions = null;
 
 }

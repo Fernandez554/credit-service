@@ -1,10 +1,13 @@
 package com.nttbank.microservices.creditservice.service.impl;
 
 import com.nttbank.microservices.creditservice.model.entity.Credit;
+import com.nttbank.microservices.creditservice.model.entity.CreditStatus;
+import com.nttbank.microservices.creditservice.model.entity.CreditTransactions;
 import com.nttbank.microservices.creditservice.model.entity.Installment;
+import com.nttbank.microservices.creditservice.model.entity.TransactionType;
 import com.nttbank.microservices.creditservice.model.response.CustomerResponse;
-import com.nttbank.microservices.creditservice.model.response.MovementResponse;
 import com.nttbank.microservices.creditservice.repo.ICreditRepo;
+import com.nttbank.microservices.creditservice.repo.ICreditTransactionRepo;
 import com.nttbank.microservices.creditservice.service.CreditService;
 import com.nttbank.microservices.creditservice.service.CustomerService;
 import com.nttbank.microservices.creditservice.service.MovementService;
@@ -15,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -22,12 +26,14 @@ import reactor.core.publisher.Mono;
 /**
  * Credit service implementation.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CreditServiceImpl implements CreditService {
 
   private final CustomerService customerService;
   private final MovementService movementService;
+  private final ICreditTransactionRepo transactionRepo;
   private final ICreditRepo repo;
 
   @Override
@@ -36,9 +42,9 @@ public class CreditServiceImpl implements CreditService {
   }
 
   @Override
-  public Mono<Credit> save(Credit credit) {
+  public Mono<CreditTransactions> save(Credit credit) {
     return customerService.findCustomerById(credit.getCustomerId())
-        .flatMap(this::hasLeastOneCredit)
+        .flatMap(this::hasActiveCredits)
         .flatMap(customer -> {
           return calculateInstallments(credit)
               .flatMap(installments -> Mono.just(Credit.builder()
@@ -49,11 +55,11 @@ public class CreditServiceImpl implements CreditService {
                   .lstInstallments(installments)
                   .startDate(installments.get(0).getDueDate())
                   .endDate(installments.get(installments.size() - 1).getDueDate())
-                  .createdAt(LocalDateTime.now())
-                  .updatedAt(LocalDateTime.now())
-                  .creditStatus("active")
                   .build()))
-              .flatMap(repo::save);
+              .flatMap(repo::save)
+              .flatMap(
+                  cc -> saveTransaction(cc, cc.getCreditAmount(),
+                      TransactionType.credit_approval, null));
         }).onErrorResume(
             e -> Mono.error(
                 new IllegalArgumentException("Error saving credit: " + e.getMessage())));
@@ -71,13 +77,11 @@ public class CreditServiceImpl implements CreditService {
             .lstInstallments(installments)
             .startDate(installments.get(0).getDueDate())
             .endDate(installments.get(installments.size() - 1).getDueDate())
-            .createdAt(LocalDateTime.now())
-            .updatedAt(LocalDateTime.now())
             .build()));
   }
 
   @Override
-  public Mono<Credit> payInstallment(String creditId, String installmentNumber) {
+  public Mono<CreditTransactions> payInstallment(String creditId, String installmentNumber) {
     return repo.findById(creditId)
         .flatMap(credit -> {
           return credit.getLstInstallments().stream()
@@ -86,23 +90,18 @@ public class CreditServiceImpl implements CreditService {
                       && !installment.isPaid())
               .findFirst()
               .map(installment -> {
-                if (credit.getLstInstallments().stream()
-                    .allMatch(Installment::isPaid)) {
-                  credit.setCreditStatus("paid");
+                if (credit.getLstInstallments()
+                    .stream()
+                    .filter(i -> !i.isPaid())
+                    .count() == 1) {
+                  credit.setStatus(CreditStatus.paid);
                 }
                 installment.setPaid(true);
                 return repo.save(credit).flatMap(c -> {
-                  return movementService.saveMovement(
-                          MovementResponse.builder()
-                              .customerId(credit.getCustomerId())
-                              .accountId(creditId)
-                              .amount(installment.getAmount())
-                              .timestamp(LocalDateTime.now())
-                              .description("Credit installment payment")
-                              .type("payment")
-                              .build()
-                      )
-                      .thenReturn(c);
+                  return saveTransaction(c,
+                      installment.getAmount(),
+                      TransactionType.installment_pay,
+                      String.valueOf(installment.getInstallmentNumber()));
                 });
               })
               .orElse(Mono.error(
@@ -114,14 +113,21 @@ public class CreditServiceImpl implements CreditService {
 
   @Override
   public Mono<Credit> findById(String creditId) {
-    return repo.findById(creditId);
+    return repo.findById(creditId).flatMap(credit -> {
+      return findCreditTransactions(creditId)
+          .collectList()
+          .map(lstTransactions -> {
+            credit.setLstTransactions(lstTransactions);
+            return credit;
+          });
+    });
   }
 
-  private Mono<CustomerResponse> hasLeastOneCredit(CustomerResponse customer) {
+  private Mono<CustomerResponse> hasActiveCredits(CustomerResponse customer) {
     if ("business".equals(customer.getType())) {
       return Mono.just(customer);
     }
-    return repo.countByCustomerIdAndCreditStatus(customer.getId(), "active")
+    return repo.countByCustomerIdAndStatus(customer.getId(), CreditStatus.active.name())
         .flatMap(totalCredits -> {
           if (totalCredits > 0) {
             return Mono.error(
@@ -162,5 +168,33 @@ public class CreditServiceImpl implements CreditService {
         .paid(false)
         .build();
   }
+
+  private Mono<CreditTransactions> saveTransaction(Credit credit, BigDecimal amount,
+      TransactionType type, String installment) {
+
+    return transactionRepo.save(CreditTransactions.builder()
+        .customerId(credit.getCustomerId())
+        .creditId(credit.getId())
+        .creditAmount(amount)
+        .installment(installment)
+        .type(type)
+        .createdAt(LocalDateTime.now())
+        .build()
+    );
+  }
+
+  private Flux<CreditTransactions> findCreditTransactions(String creditId) {
+    return transactionRepo.findAllByCreditId(creditId)
+        .map(transaction ->
+            CreditTransactions.builder()
+                .creditAmount(transaction.getCreditAmount())
+                .installment(transaction.getInstallment())
+                .type(transaction.getType())
+                .createdAt(transaction.getCreatedAt())
+                .description(transaction.getDescription())
+                .build()
+        );
+  }
+
 
 }

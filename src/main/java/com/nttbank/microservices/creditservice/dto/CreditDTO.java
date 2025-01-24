@@ -1,5 +1,6 @@
 package com.nttbank.microservices.creditservice.dto;
 
+import com.nttbank.microservices.creditservice.model.entity.CreditStatus;
 import com.nttbank.microservices.creditservice.model.entity.Installment;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -23,7 +24,6 @@ public class CreditDTO {
   private String id;
   @NotNull
   private String customerId;
-  private String creditStatus;
   @NotNull
   private BigDecimal creditAmount;
   @NotNull
@@ -35,6 +35,10 @@ public class CreditDTO {
   private List<Installment> lstInstallments;
   private LocalDate startDate;
   private LocalDate endDate;
-  private LocalDateTime createdAt;
-  private LocalDateTime updatedAt;
+  @Builder.Default
+  private LocalDateTime createdAt = LocalDateTime.now();
+  @Builder.Default
+  private LocalDateTime updatedAt = LocalDateTime.now();
+  @Builder.Default
+  private CreditStatus status = CreditStatus.active;
 }

@@ -3,6 +3,7 @@ package com.nttbank.microservices.creditservice.controller;
 import com.nttbank.microservices.creditservice.dto.CreditDTO;
 import com.nttbank.microservices.creditservice.mapper.CreditMapper;
 import com.nttbank.microservices.creditservice.model.entity.Credit;
+import com.nttbank.microservices.creditservice.model.entity.CreditTransactions;
 import com.nttbank.microservices.creditservice.service.CreditService;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -57,7 +58,7 @@ public class CreditController {
   }
 
   @PostMapping
-  public Mono<ResponseEntity<Credit>> save(@Valid @RequestBody CreditDTO creditDTO,
+  public Mono<ResponseEntity<CreditTransactions>> save(@Valid @RequestBody CreditDTO creditDTO,
       final ServerHttpRequest req) {
     return creditService.save(
             mapper.creditDTOToCredit(creditDTO)).map(c -> ResponseEntity.created(
@@ -67,7 +68,7 @@ public class CreditController {
   }
 
   @PostMapping("/{credit_id}/installments/{installment_number}/pay")
-  public Mono<ResponseEntity<Credit>> payInstallment(@PathVariable("credit_id") String creditId,
+  public Mono<ResponseEntity<CreditTransactions>> payInstallment(@PathVariable("credit_id") String creditId,
       @PathVariable("installment_number") String installmentNumber) {
     return creditService.payInstallment(creditId, installmentNumber)
         .map(c -> ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(c))
